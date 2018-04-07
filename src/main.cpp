@@ -28,72 +28,18 @@ std::string hasData(std::string s) {
   }
   return "";
 }
+
 bool is_initialized = false;
+int it = 0;//iterator for twiddle.
+int factor;
+int idx = 0;
+int flag = 0;
+int flag_twiddle = 0;
 
-int main()
+double run_robot(PID pid)
 {
-  uWS::Hub h;
-
-  PID pid;
-  // TODO: Initialize the pid variable.
-  double kp = 0.2;
-  double ki = 0.004;
-  double kd = 3.0;
-  pid.Init(kp, ki, kd);
-  pid.set_drift(0.0);
-
-  h.onMessage([&pid](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode) {
-    // "42" at the start of the message means there's a websocket message event.
-    // The 4 signifies a websocket message
-    // The 2 signifies a websocket event
-    if (length && length > 2 && data[0] == '4' && data[1] == '2')
-    {
-      auto s = hasData(std::string(data).substr(0, length));
-      if (s != "") {
-        auto j = json::parse(s);
-        std::string event = j[0].get<std::string>();
-        if (event == "telemetry") {
-          // j[1] is the data JSON object
-          double cte = std::stod(j[1]["cte"].get<std::string>());
-          double speed = std::stod(j[1]["speed"].get<std::string>());
-          double angle = std::stod(j[1]["steering_angle"].get<std::string>());
-          double steer_value;
-          /*
-          * TODO: Calcuate steering value here, remember the steering value is
-          * [-1, 1].
-          * NOTE: Feel free to play around with the throttle and speed. Maybe use
-          * another PID controller to control the speed!
-          */
-          if(!is_initialized)
-          {
-            pid.cte_previous = cte;
-            is_initialized = true;
-          }
-          pid.cte_t = cte;
-          pid.UpdateError();
-          steer_value = pid.TotalError();
-          
-          // DEBUG
-          std::cout << "CTE: " << cte << " Steering Value: " << steer_value << std::endl;
-
-          json msgJson;
-          msgJson["steering_angle"] = steer_value;
-          msgJson["throttle"] = 0.3;
-          auto msg = "42[\"steer\"," + msgJson.dump() + "]";
-          std::cout << msg << std::endl;
-          ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
-        }
-      } else {
-        // Manual driving
-        std::string msg = "42[\"manual\",{}]";
-        ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
-      }
-    }
-  });
-
-  // We don't need this since we're not using HTTP but if it's removed the program
-  // doesn't compile :-(
-  h.onHttpRequest([](uWS::HttpResponse *res, uWS::HttpRequest req, char *data, size_t, size_t) {
+    uWS::Hub h;
+    h.onHttpRequest([](uWS::HttpResponse *res, uWS::HttpRequest req, char *data, size_t, size_t) {
     const std::string s = "<h1>Hello world!</h1>";
     if (req.getUrl().valueLength == 1)
     {
@@ -125,5 +71,507 @@ int main()
     std::cerr << "Failed to listen to port" << std::endl;
     return -1;
   }
+
+    h.onMessage([&pid](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode){
+    // "42" at the start of the message means there's a websocket message event.
+    // The 4 signifies a websocket message
+    // The 2 signifies a websocket event
+      // cout<<"Check1"<<endl;
+    if (length && length > 2 && data[0] == '4' && data[1] == '2')
+    {
+      auto s = hasData(std::string(data).substr(0, length));
+      if (s != "") {
+        auto j = json::parse(s);
+        std::string event = j[0].get<std::string>();
+        if (event == "telemetry") {
+          // j[1] is the data JSON object
+          double cte = std::stod(j[1]["cte"].get<std::string>());
+          double speed = std::stod(j[1]["speed"].get<std::string>());
+          double angle = std::stod(j[1]["steering_angle"].get<std::string>());
+          double steer_value;
+          
+          // * TODO: Calcuate steering value here, remember the steering value is
+          // * [-1, 1].
+          // * NOTE: Feel free to play around with the throttle and speed. Maybe use
+          // * another PID controller to control the speed!
+          
+          if(!is_initialized)
+          {
+            pid.cte_previous = cte;
+            is_initialized = true;
+            // pid.param_update(idx);
+          }
+
+          pid.cte_t = cte;
+          pid.UpdateError();
+          steer_value = pid.TotalError();
+          steer_value = deg2rad(steer_value);
+
+          // DEBUG
+          // std::cout << "CTE: " << cte << " Steering Value: " << steer_value << std::endl;
+
+          factor = it/50;
+          if((factor%2) != 0)
+          {
+            pid.error+= cte*cte;
+          }
+          //Evaluating the best error  for the first time.
+          if(it == 100)
+          {
+            // cout<<"Check 1"<<endl;
+            pid.best_error = pid.error/50.0;
+            // pid.error = 0.0;
+            // pid.param_update(idx);
+          }
+
+          if(it == 100) flag_twiddle = 1;
+
+          if(it%100 == 0 && it!=0 && (pid.dp[0] + pid.dp[1])>0.01 && flag_twiddle == 1) 
+          {
+            pid.error/=50.0;
+
+            //Twiddle Implementation.
+            if(flag == 1)
+            {
+              if(pid.error<pid.best_error)
+                {
+                  cout<<"Check 2"<<endl;
+                  cout<<"Index "<<idx<<endl;
+                  pid.best_error = pid.error;
+                  pid.dp[idx]*=1.1;
+                }
+                else
+                {
+                  cout<<"Check 3"<<endl;
+                  cout<<"Index "<<idx<<endl;
+                  pid.params[idx]+=pid.dp[idx];
+                  pid.dp[idx]*=0.9;
+                }
+                // pid.param_update(idx);//For the next time.
+                pid.error = 0.0;
+                flag = 0;
+            }
+            else if(flag == 0)
+            {
+
+              if(pid.error<=pid.best_error)
+              {
+                pid.best_error = pid.error;
+                cout<<"Check 1"<<endl;
+                cout<<"Index "<<idx<<endl;
+                pid.dp[idx]*=1.1;
+                // pid.params[idx]+=pid.dp[idx];//Updating the parameter for the next time when this parameter will be used.
+                pid.error = 0.0;
+              }
+              else
+              {
+                pid.params[idx]-= 2*pid.dp[idx];
+                pid.error = 0.0;
+                flag = 1;
+                cout<<"Reseting the sim."<<endl;
+                cout<<"Index "<<idx<<endl;
+                std::string reset_msg = "42[\"reset\",{}]";
+                ws.send(reset_msg.data(), reset_msg.length(), uWS::OpCode::TEXT);
+              }
+            }
+            cout<<"Before index change"<<endl;  
+            if(flag != 1) 
+            { 
+              idx++;
+              idx = idx%2;
+              pid.param_update(idx);
+            }
+          }
+          it++;
+
+          cout<<"Kp "<<pid.params[0]<<" "<<"Kd "<<pid.params[1]<<endl;
+          cout<<"dp1 "<<pid.dp[0]<<" "<<"dp2 "<<pid.dp[1]<<endl;
+          cout<<"Sum of DPs "<<pid.dp[0] + pid.dp[1]<<endl;
+
+          json msgJson;
+          msgJson["steering_angle"] = steer_value;
+          msgJson["throttle"] = 0.15;
+          auto msg = "42[\"steer\"," + msgJson.dump() + "]";
+          // std::cout << msg << std::endl;
+          ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
+        }
+      } 
+      else {
+        // Manual driving
+        std::string msg = "42[\"manual\",{}]";
+        ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
+      }
+      // it++;
+      // if(it == 100)
+      // {
+      //   ws.close();
+      // }
+  }
+  // it++;
+  // cout<<i<<endl;
+  // if(it==100)
+  // {
+  // it = 0;
+  // std::string reset_msg = "42[\"reset\",{}]";
+  // ws.send(reset_msg.data(), reset_msg.length(), uWS::OpCode::TEXT);
+  // }
+  // it++;
+  // if(it == 100) 
+  // {
+  //   // std::string close_msg = "1006[\"close\",{}]";
+  //   // ws.send(close_msg.data(), close_msg.length(), uWS::OpCode::TEXT);
+  //   ws.close(1006, "Testing Closeing!");
+  //   return 1000;
+  // }
+  });
+  // We don't need this since we're not using HTTP but if it's removed the program
+  // doesn't compile :-(
+  // h.onHttpRequest([](uWS::HttpResponse *res, uWS::HttpRequest req, char *data, size_t, size_t) {
+  //   const std::string s = "<h1>Hello world!</h1>";
+  //   if (req.getUrl().valueLength == 1)
+  //   {
+  //     res->end(s.data(), s.length());
+  //   }
+  //   else
+  //   {
+  //     // i guess this should be done more gracefully?
+  //     res->end(nullptr, 0);
+  //   }
+  // });
+
+  // h.onConnection([&h](uWS::WebSocket<uWS::SERVER> ws, uWS::HttpRequest req) {
+  //   std::cout << "Connected!!!" << std::endl;
+  // });
+
+  // h.onDisconnection([&h](uWS::WebSocket<uWS::SERVER> ws, int code, char *message, size_t length) {
+  //   ws.close();
+  //   std::cout << "Disconnected" << std::endl;
+  // });
+
+  // int port = 4567;
+  // if (h.listen(port))
+  // {
+  //   std::cout << "Listening to port " << port << std::endl;
+  // }
+  // else
+  // {
+  //   std::cerr << "Failed to listen to port" << std::endl;
+  //   return -1;
+  // }
   h.run();
 }
+
+// int connect()
+// {
+  // h.onHttpRequest([](uWS::HttpResponse *res, uWS::HttpRequest req, char *data, size_t, size_t) {
+  //   const std::string s = "<h1>Hello world!</h1>";
+  //   if (req.getUrl().valueLength == 1)
+  //   {
+  //     res->end(s.data(), s.length());
+  //   }
+  //   else
+  //   {
+  //     // i guess this should be done more gracefully?
+  //     res->end(nullptr, 0);
+  //   }
+  // });
+
+  // h.onConnection([&h](uWS::WebSocket<uWS::SERVER> ws, uWS::HttpRequest req) {
+  //   std::cout << "Connected!!!" << std::endl;
+  // });
+
+  // h.onDisconnection([&h](uWS::WebSocket<uWS::SERVER> ws, int code, char *message, size_t length) {
+  //   ws.close();
+  //   std::cout << "Disconnected" << std::endl;
+  // });
+
+  // int port = 4567;
+  // if (h.listen(port))
+  // {
+  //   std::cout << "Listening to port " << port << std::endl;
+  // }
+  // else
+  // {
+  //   std::cerr << "Failed to listen to port" << std::endl;
+  //   return -1;
+  // }
+  // h.run();
+// }
+
+int main()
+{
+  uWS::Hub h;
+  PID pid;
+
+  // TODO: Initialize the pid variable.
+  double kp = 0.0;//0.2
+  // double ki = 0.0;//0.004
+  double kd = 0.0;//3.0
+  
+  // vector<double> params(5);
+  // params.push_back(kp):
+  // params.push_back(ki):
+  // params.push_back(kd):
+
+  // vector<double> dp(3);
+  // fill(dp.begin(), dp.end(), 0.2);
+  
+  pid.Init(kp,kd);
+  pid.set_drift(0.0);
+  // run_robot(pid);
+  // int test = connect();
+  run_robot(pid);
+  // run_robot(pid);
+  // cout<<"It works!"<<endl;
+  // run_robot(pid);
+  // cout<<"It surely works!"<<endl;
+
+  // while(pid.dp[0] + pid.dp[1] + pid.dp[2])
+  // {
+  //   for(int i=0; i<3; i++)
+  //   {     
+  //     factor = it/100;
+  //     if((factor%2) != 0)
+  //     {
+  //       cout<<"Inside error evalution loop."<<endl;
+  //       pid.error+= cte*cte;0
+  //     }
+  //     if(it == 100)
+  //     {
+  //       pid.best_error = pid.error/100.0;
+  //     }
+
+  //     //To be remained in this while loop.
+  //     if(it%200 == 0 && it!=0) 
+  //     {
+  //       cout<<"Inside twiddle loop"<<endl;
+  //       //Twiddle Implementation.
+
+  //       if(pid.error<pid.best_error)
+  //       {
+  //         pid.best_error = pid.error;
+  //         pid.dp[idx]*=1.1;
+  //         pid.error = 0.0;
+  //       }
+  //       else
+  //       {
+  //         pid.params[idx]-= 2*pid.dp[idx];
+  //         pid.error = 0.0;
+  //         run_robot(pid);
+  //         if()
+  //       }
+  //     }
+  //     // it++;
+
+  //     // if(steer_value>1 ||  steer_value<-1)
+  //     // {
+
+  //     // }
+
+  // run_robot(pid);
+  //   }
+  // }
+
+  // h.onMessage([&pid](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode){
+  //   // "42" at the start of the message means there's a websocket message event.
+  //   // The 4 signifies a websocket message
+  //   // The 2 signifies a websocket event
+  //   if (length && length > 2 && data[0] == '4' && data[1] == '2')
+  //   {
+  //     auto s = hasData(std::string(data).substr(0, length));
+  //     if (s != "") {
+  //       auto j = json::parse(s);
+  //       std::string event = j[0].get<std::string>();
+  //       if (event == "telemetry") {
+  //         // j[1] is the data JSON object
+  //         double cte = std::stod(j[1]["cte"].get<std::string>());
+  //         double speed = std::stod(j[1]["speed"].get<std::string>());
+  //         double angle = std::stod(j[1]["steering_angle"].get<std::string>());
+  //         double steer_value;
+          
+  //         // * TODO: Calcuate steering value here, remember the steering value is
+  //         // * [-1, 1].
+  //         // * NOTE: Feel free to play around with the throttle and speed. Maybe use
+  //         // * another PID controller to control the speed!
+          
+  //         if(!is_initialized)
+  //         {
+  //           pid.cte_previous = cte;
+  //           is_initialized = true;
+  //         }
+
+  //         pid.cte_t = cte;
+  //         pid.UpdateError();
+  //         steer_value = pid.TotalError();
+
+  //         // factor = it/100;
+  //         // if((factor%2) != 0)
+  //         // {
+  //         //   cout<<"Inside error evalution loop."<<endl;
+  //         //   pid.error+= cte*cte;0
+  //         // }
+  //         // if(it == 100)
+  //         // {
+  //         //   pid.best_error = pid.error/100.0;
+  //         // }
+
+  //         // //To be remained in this while loop.
+  //         // if(it%200 == 0 && it!=0) 
+  //         // {
+  //         //   cout<<"Inside twiddle loop"<<endl;
+  //         //   //Twiddle Implementation.
+
+  //         //   if(pid.error<pid.best_error)
+  //         //   {
+  //         //     pid.best_error = pid.error;
+  //         //     pid.dp[idx]*=1.1;
+  //         //     pid.error = 0.0;
+  //         //   }
+  //         //   else
+  //         //   {
+  //         //     pid.params[idx]-= 2*pid.dp[idx];
+  //         //     pid.error = 0.0;
+  //         //     run_robot(pid);
+  //         //     if()
+  //         //   }
+          
+  //         // }
+          
+  //         // DEBUG
+  //         std::cout << "CTE: " << cte << " Steering Value: " << steer_value << std::endl;
+
+  //         json msgJson;
+  //         msgJson["steering_angle"] = steer_value;
+  //         msgJson["throttle"] = 0.3;
+  //         auto msg = "42[\"steer\"," + msgJson.dump() + "]";
+  //         std::cout << msg << std::endl;
+  //         ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
+  //       }
+  //     } 
+  //     else {
+  //       // Manual driving
+  //       std::string msg = "42[\"manual\",{}]";
+  //       ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
+  //     }
+  // }
+  // it++;
+  // cout<<it<<endl;
+  // if(it==100)
+  // {
+  //   it = 0;
+  //   ws.close();
+  // }
+  // });
+
+  // // We don't need this since we're not using HTTP but if it's removed the program
+  // // doesn't compile :-(
+  // h.onHttpRequest([](uWS::HttpResponse *res, uWS::HttpRequest req, char *data, size_t, size_t) {
+  //   const std::string s = "<h1>Hello world!</h1>";
+  //   if (req.getUrl().valueLength == 1)
+  //   {
+  //     res->end(s.data(), s.length());
+  //   }
+  //   else
+  //   {
+  //     // i guess this should be done more gracefully?
+  //     res->end(nullptr, 0);
+  //   }
+  // });
+
+  // h.onConnection([&h](uWS::WebSocket<uWS::SERVER> ws, uWS::HttpRequest req) {
+  //   std::cout << "Connected!!!" << std::endl;
+  // });
+
+  // h.onDisconnection([&h](uWS::WebSocket<uWS::SERVER> ws, int code, char *message, size_t length) {
+  //   ws.close();
+  //   std::cout << "Disconnected" << std::endl;
+  // });
+
+  // int port = 4567;
+  // if (h.listen(port))
+  // {
+  //   std::cout << "Listening to port " << port << std::endl;
+  // }
+  // else
+  // {
+  //   std::cerr << "Failed to listen to port" << std::endl;
+  //   return -1;
+  // }
+  // h.run();
+}
+
+// uWS::Hub h;
+//     h.onMessage([&pid](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode){
+//     // "42" at the start of the message means there's a websocket message event.
+//     // The 4 signifies a websocket message
+//     // The 2 signifies a websocket event
+//       cout<<"Check1"<<endl;
+//     if (length && length > 2 && data[0] == '4' && data[1] == '2')
+//     {
+//       auto s = hasData(std::string(data).substr(0, length));
+//       if (s != "") {
+//         auto j = json::parse(s);
+//         std::string event = j[0].get<std::string>();
+//         if (event == "telemetry") {
+//           // j[1] is the data JSON object
+//           double cte = std::stod(j[1]["cte"].get<std::string>());
+//           double speed = std::stod(j[1]["speed"].get<std::string>());
+//           double angle = std::stod(j[1]["steering_angle"].get<std::string>());
+//           double steer_value;
+          
+//           // * TODO: Calcuate steering value here, remember the steering value is
+//           // * [-1, 1].
+//           // * NOTE: Feel free to play around with the throttle and speed. Maybe use
+//           // * another PID controller to control the speed!
+          
+
+//           if(!is_initialized)
+//           {
+//             pid.cte_previous = cte;
+//             is_initialized = true;
+//           }
+
+//           pid.cte_t = cte;
+//           pid.UpdateError();
+//           steer_value = pid.TotalError();
+          
+//           // DEBUG
+//           std::cout << "CTE: " << cte << " Steering Value: " << steer_value << std::endl;
+
+//           json msgJson;
+//           msgJson["steering_angle"] = steer_value;
+//           msgJson["throttle"] = 0.3;
+//           auto msg = "42[\"steer\"," + msgJson.dump() + "]";
+//           std::cout << msg << std::endl;
+//           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
+//         }
+//       } 
+//       else {
+//         // Manual driving
+//         std::string msg = "42[\"manual\",{}]";
+//         ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
+//       }
+//       it++;
+//       if(it == 100)
+//       {
+//         ws.close();
+//       }
+//   }
+//   // it++;
+//   // cout<<i<<endl;
+//   // if(it==100)
+//   // {
+//   // it = 0;
+//   // std::string reset_msg = "42[\"reset\",{}]";
+//   // ws.send(reset_msg.data(), reset_msg.length(), uWS::OpCode::TEXT);
+//   // }
+//   // it++;
+//   // if(it == 100) 
+//   // {
+//   //   // std::string close_msg = "1006[\"close\",{}]";
+//   //   // ws.send(close_msg.data(), close_msg.length(), uWS::OpCode::TEXT);
+//   //   ws.close(1006, "Testing Closeing!");
+//   //   return 1000;
+//   // }
+//   });
+
