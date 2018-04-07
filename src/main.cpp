@@ -105,13 +105,14 @@ double run_robot(PID pid)
           pid.cte_t = cte;
           pid.UpdateError();
           steer_value = pid.TotalError();
-          steer_value = deg2rad(steer_value);
+          if(steer_value>1) steer_value = 1;
+          if(steer_value<-1) steer_value = -1;
 
           // DEBUG
           // std::cout << "CTE: " << cte << " Steering Value: " << steer_value << std::endl;
 
-          factor = it/50;
-          if((factor%2) != 0)
+          factor = it/50;// Using 50 iterations to let the controller stabilize.
+          if((factor%2) != 0)//Error is being evaluated for the other 50 iterations before running the twiddle.
           {
             pid.error+= cte*cte;
           }
@@ -131,35 +132,15 @@ double run_robot(PID pid)
             pid.error/=50.0;
 
             //Twiddle Implementation.
-            if(flag == 1)
-            {
-              if(pid.error<pid.best_error)
-                {
-                  cout<<"Check 2"<<endl;
-                  cout<<"Index "<<idx<<endl;
-                  pid.best_error = pid.error;
-                  pid.dp[idx]*=1.1;
-                }
-                else
-                {
-                  cout<<"Check 3"<<endl;
-                  cout<<"Index "<<idx<<endl;
-                  pid.params[idx]+=pid.dp[idx];
-                  pid.dp[idx]*=0.9;
-                }
-                // pid.param_update(idx);//For the next time.
-                pid.error = 0.0;
-                flag = 0;
-            }
-            else if(flag == 0)
+            if(flag == 0)
             {
 
               if(pid.error<=pid.best_error)
               {
                 pid.best_error = pid.error;
-                cout<<"Check 1"<<endl;
-                cout<<"Index "<<idx<<endl;
-                pid.dp[idx]*=1.1;
+                // cout<<"Check 1"<<endl;
+                // cout<<"Index "<<idx<<endl;
+                pid.dp[idx]*=1.1;//If the direction seems good, then increasing this value will help to converge faster.
                 // pid.params[idx]+=pid.dp[idx];//Updating the parameter for the next time when this parameter will be used.
                 pid.error = 0.0;
               }
@@ -169,12 +150,33 @@ double run_robot(PID pid)
                 pid.error = 0.0;
                 flag = 1;
                 cout<<"Reseting the sim."<<endl;
-                cout<<"Index "<<idx<<endl;
+                // cout<<"Index "<<idx<<endl;
                 std::string reset_msg = "42[\"reset\",{}]";
                 ws.send(reset_msg.data(), reset_msg.length(), uWS::OpCode::TEXT);
               }
             }
-            cout<<"Before index change"<<endl;  
+
+            else if(flag == 1)
+            {
+              if(pid.error<pid.best_error)
+                {
+                  // cout<<"Check 2"<<endl;
+                  // cout<<"Index "<<idx<<endl;
+                  pid.best_error = pid.error;
+                  pid.dp[idx]*=1.1;
+                }
+                else
+                {
+                  // cout<<"Check 3"<<endl;
+                  // cout<<"Index "<<idx<<endl;
+                  pid.params[idx]+=pid.dp[idx];
+                  pid.dp[idx]*=0.9;
+                }
+                // pid.param_update(idx);//For the next time.
+                pid.error = 0.0;
+                flag = 0;
+            }
+            // cout<<"Before index change"<<endl;  
             if(flag != 1) 
             { 
               idx++;
@@ -187,6 +189,7 @@ double run_robot(PID pid)
           cout<<"Kp "<<pid.params[0]<<" "<<"Kd "<<pid.params[1]<<endl;
           cout<<"dp1 "<<pid.dp[0]<<" "<<"dp2 "<<pid.dp[1]<<endl;
           cout<<"Sum of DPs "<<pid.dp[0] + pid.dp[1]<<endl;
+          cout<<"Best error "<<pid.best_error<<endl;
 
           json msgJson;
           msgJson["steering_angle"] = steer_value;
@@ -201,11 +204,6 @@ double run_robot(PID pid)
         std::string msg = "42[\"manual\",{}]";
         ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
       }
-      // it++;
-      // if(it == 100)
-      // {
-      //   ws.close();
-      // }
   }
   });
   h.run();
@@ -217,8 +215,8 @@ int main()
   PID pid;
 
   // TODO: Initialize the pid variable.
-  double kp = 0.0;//0.2
-  double kd = 0.0;//3.0
+  double kp = 1.0;//0.2
+  double kd = 0.4;//3.0
   
   pid.Init(kp,kd);
   pid.set_drift(0.0);
