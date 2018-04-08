@@ -39,38 +39,6 @@ int flag_twiddle = 0;
 double run_robot(PID pid)
 {
     uWS::Hub h;
-    h.onHttpRequest([](uWS::HttpResponse *res, uWS::HttpRequest req, char *data, size_t, size_t) {
-    const std::string s = "<h1>Hello world!</h1>";
-    if (req.getUrl().valueLength == 1)
-    {
-      res->end(s.data(), s.length());
-    }
-    else
-    {
-      // i guess this should be done more gracefully?
-      res->end(nullptr, 0);
-    }
-  });
-
-  h.onConnection([&h](uWS::WebSocket<uWS::SERVER> ws, uWS::HttpRequest req) {
-    std::cout << "Connected!!!" << std::endl;
-  });
-
-  h.onDisconnection([&h](uWS::WebSocket<uWS::SERVER> ws, int code, char *message, size_t length) {
-    ws.close();
-    std::cout << "Disconnected" << std::endl;
-  });
-
-  int port = 4567;
-  if (h.listen(port))
-  {
-    std::cout << "Listening to port " << port << std::endl;
-  }
-  else
-  {
-    std::cerr << "Failed to listen to port" << std::endl;
-    return -1;
-  }
 
     h.onMessage([&pid](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode){
     // "42" at the start of the message means there's a websocket message event.
@@ -107,29 +75,31 @@ double run_robot(PID pid)
           steer_value = pid.TotalError();
           if(steer_value>1) steer_value = 1;
           if(steer_value<-1) steer_value = -1;
+          // steer_value  = deg2rad(steer_value);
+          cout<<"Iteration number "<<it<<endl;
 
           // DEBUG
           // std::cout << "CTE: " << cte << " Steering Value: " << steer_value << std::endl;
 
-          factor = it/50;// Using 50 iterations to let the controller stabilize.
+          factor = it/20;// number represents the number iterations to let the controller stabilize.
           if((factor%2) != 0)//Error is being evaluated for the other 50 iterations before running the twiddle.
           {
             pid.error+= cte*cte;
           }
           //Evaluating the best error  for the first time.
-          if(it == 100)
+          if(it == 40)
           {
             // cout<<"Check 1"<<endl;
-            pid.best_error = pid.error/50.0;
+            pid.best_error = pid.error/20.0;
             // pid.error = 0.0;
             // pid.param_update(idx);
           }
 
-          if(it == 100) flag_twiddle = 1;
+          if(it == 40) flag_twiddle = 1;
 
-          if(it%100 == 0 && it!=0 && (pid.dp[0] + pid.dp[1])>0.01 && flag_twiddle == 1) 
+          if(it%40 == 0 && it!=0 && (pid.dp[0] + pid.dp[1])>0.01 && flag_twiddle == 1) 
           {
-            pid.error/=50.0;
+            pid.error/=20.0;
 
             //Twiddle Implementation.
             if(flag == 0)
@@ -138,7 +108,7 @@ double run_robot(PID pid)
               if(pid.error<=pid.best_error)
               {
                 pid.best_error = pid.error;
-                // cout<<"Check 1"<<endl;
+                cout<<"Check 1"<<endl;
                 // cout<<"Index "<<idx<<endl;
                 pid.dp[idx]*=1.1;//If the direction seems good, then increasing this value will help to converge faster.
                 // pid.params[idx]+=pid.dp[idx];//Updating the parameter for the next time when this parameter will be used.
@@ -160,14 +130,14 @@ double run_robot(PID pid)
             {
               if(pid.error<pid.best_error)
                 {
-                  // cout<<"Check 2"<<endl;
+                  cout<<"Check 2"<<endl;
                   // cout<<"Index "<<idx<<endl;
                   pid.best_error = pid.error;
                   pid.dp[idx]*=1.1;
                 }
                 else
                 {
-                  // cout<<"Check 3"<<endl;
+                  cout<<"Check 3"<<endl;
                   // cout<<"Index "<<idx<<endl;
                   pid.params[idx]+=pid.dp[idx];
                   pid.dp[idx]*=0.9;
@@ -186,14 +156,14 @@ double run_robot(PID pid)
           }
           it++;
 
+          // cout<<"Iterunation number "<<it<<endl;
           cout<<"Kp "<<pid.params[0]<<" "<<"Kd "<<pid.params[1]<<endl;
           cout<<"dp1 "<<pid.dp[0]<<" "<<"dp2 "<<pid.dp[1]<<endl;
           cout<<"Sum of DPs "<<pid.dp[0] + pid.dp[1]<<endl;
           cout<<"Best error "<<pid.best_error<<endl;
-
           json msgJson;
           msgJson["steering_angle"] = steer_value;
-          msgJson["throttle"] = 0.15;
+          msgJson["throttle"] = 0.2;
           auto msg = "42[\"steer\"," + msgJson.dump() + "]";
           // std::cout << msg << std::endl;
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
@@ -206,6 +176,39 @@ double run_robot(PID pid)
       }
   }
   });
+
+h.onHttpRequest([](uWS::HttpResponse *res, uWS::HttpRequest req, char *data, size_t, size_t) {
+    const std::string s = "<h1>Hello world!</h1>";
+    if (req.getUrl().valueLength == 1)
+    {
+      res->end(s.data(), s.length());
+    }
+    else
+    {
+      // i guess this should be done more gracefully?
+      res->end(nullptr, 0);
+    }
+  });
+
+  h.onConnection([&h](uWS::WebSocket<uWS::SERVER> ws, uWS::HttpRequest req) {
+    std::cout << "Connected!!!" << std::endl;
+  });
+
+  h.onDisconnection([&h](uWS::WebSocket<uWS::SERVER> ws, int code, char *message, size_t length) {
+    ws.close();
+    std::cout << "Disconnected" << std::endl;
+  });
+
+  int port = 4567;
+  if (h.listen(port))
+  {
+    std::cout << "Listening to port " << port << std::endl;
+  }
+  else
+  {
+    std::cerr << "Failed to listen to port" << std::endl;
+    return -1;
+  }
   h.run();
 }
 
@@ -215,8 +218,9 @@ int main()
   PID pid;
 
   // TODO: Initialize the pid variable.
-  double kp = 1.0;//0.2
-  double kd = 0.4;//3.0
+  double kp = 0.0;//0.2
+  // double ki = 0.0;//0.04
+  double kd = 0.0;//3.0
   
   pid.Init(kp,kd);
   pid.set_drift(0.0);
