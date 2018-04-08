@@ -28,7 +28,7 @@ public:
   vector<double> params;
   vector<double> dp;
   double error = 0.0;
-  double best_error;
+  double best_error = 1000000;
 
   /*
   * Constructor

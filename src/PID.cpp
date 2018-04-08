@@ -19,7 +19,7 @@ void PID::Init(double Kp_, double Kd_)
 
 	//Intiializing the delta parameters vector.
 	dp = vector<double>(2);
-	fill(dp.begin(), dp.end(), 0.2);
+	fill(dp.begin(), dp.end(), 1.0);
 }
 
 void PID::UpdateError()

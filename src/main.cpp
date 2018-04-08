@@ -89,13 +89,14 @@ double run_robot(PID pid)
           //Evaluating the best error  for the first time.
           if(it == 40)
           {
-            // cout<<"Check 1"<<endl;
             pid.best_error = pid.error/20.0;
+            pid.error = 0.0;
+            pid.param_update(0);
             // pid.error = 0.0;
             // pid.param_update(idx);
           }
 
-          if(it == 40) flag_twiddle = 1;
+          if(it == 80) flag_twiddle = 1;
 
           if(it%40 == 0 && it!=0 && (pid.dp[0] + pid.dp[1])>0.01 && flag_twiddle == 1) 
           {
