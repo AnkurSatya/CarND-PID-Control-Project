@@ -1,0 +1,5 @@
+#!/bin/bash
+/home/ankur/Ankur/Self_Driving_car_ND/Term2/term2_sim_linux/term2_sim.x86_64 &
+echo "Running PID now..."
+./pid 
+
